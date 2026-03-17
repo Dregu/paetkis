@@ -175,7 +175,10 @@ std::string workspaces()
             else
                 out += "<span color='#ffffff55' letter_spacing='3072'>";
         }
-        out += std::format("{:c}", ws.name.starts_with("special:") ? std::toupper(ws.name[8]) : std::toupper(ws.name[0]));
+        if (ws.id > 0)
+            out += std::format("<span letter_spacing='0'>{}</span>", ws.id);
+        else
+            out += std::format("{:c}", ws.name.starts_with("special:") ? std::toupper(ws.name[8]) : std::toupper(ws.name[0]));
         out += "</span><span baseline_shift='1.5pt' letter_spacing='1024'>";
         for (auto& win : ws.windows)
         {
@@ -464,9 +467,7 @@ void ipc_listen()
 }
 
 void handler(int n)
-{
-    die = true;
-}
+{ die = true; }
 
 int main()
 {
