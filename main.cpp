@@ -333,7 +333,7 @@ bool ipc_handle(std::string event)
     {
         try
         {
-            auto id = std::stoi(data.substr(data.find_first_of(',')));
+            auto id = std::stoi(data.substr(data.find_first_of(',') + 1));
             for (auto& ws : wss)
             {
                 if (ws.id == id)
