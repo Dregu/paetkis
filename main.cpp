@@ -153,7 +153,25 @@ std::string workspaces()
                 return true;
             if (!b.name.starts_with("special:") && a.name.starts_with("special:"))
                 return false;
-            return (a.name.starts_with("special:") ? a.name[8] : a.name[0]) < (a.name.starts_with("special:") ? b.name[8] : b.name[0]);
+            int aid = __INT_MAX__;
+            int bid = __INT_MAX__;
+            try
+            {
+                aid = std::stoi(a.name);
+            }
+            catch (...)
+            {
+            };
+            try
+            {
+                bid = std::stoi(b.name);
+            }
+            catch (...)
+            {
+            };
+            if (aid != bid)
+                return aid < bid;
+            return (a.name.starts_with("special:") ? a.name[8] : a.name[0]) < (b.name.starts_with("special:") ? b.name[8] : b.name[0]);
         });
     for (auto& ws : wss)
     {
