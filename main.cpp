@@ -241,10 +241,10 @@ void draw_clock()
 {
     mtx.lock();
     auto now = std::chrono::zoned_time{zone, std::chrono::system_clock::now()};
-    auto mon = std::format(loc, "{:L%d.%m.}", now);
     // who the fuck designs these format libs so it's impossible to get fucking numbers without leading zeros
-    mon.erase(std::remove(mon.begin(), mon.end(), '0'), mon.end());
-    std::cout << "3,<span color='#ffffffff'>" + std::format(loc, "#{:L%OV %a} {} {:L%H:%M:%OS}", now, mon, now) + "</span>" << std::endl;
+    int day = std::stoi(std::format(loc, "{:L%d}", now));
+    int mon = std::stoi(std::format(loc, "{:L%m}", now));
+    std::cout << "3,<span color='#ffffffff'>" + std::format(loc, "#{:L%OV %a} {}.{}. {:L%H:%M:%OS}", now, day, mon, now) + "</span>" << std::endl;
     mtx.unlock();
 }
 
