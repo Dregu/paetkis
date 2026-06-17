@@ -1,8 +1,10 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <exception>
 #include <ext/stdio_filebuf.h>
+#include <format>
 #include <iostream>
 #include <list>
 #include <mutex>
@@ -125,6 +127,17 @@ std::string ipc_send(std::string msg)
     return reply;
 }
 
+bool has_data(int sockfd)
+{
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(sockfd, &readfds);
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    return select(sockfd + 1, &readfds, NULL, NULL, &tv) > 0 && FD_ISSET(sockfd, &readfds);
+}
+
 struct SWindow
 {
     std::string address;
@@ -221,14 +234,10 @@ void draw_workspaces()
 
 void draw_pipe()
 {
+    if (!has_data(0))
+        return;
     std::string line;
-    /*struct pollfd fds;
-    int ret;
-    fds.fd = 0;
-    fds.events = POLLIN;
-    ret = poll(&fds, 1, 0);
-    while (ret && std::getline(std::cin, line))*/
-    while (std::getline(std::cin, line))
+    while (!die && std::getline(std::cin, line))
     {
         mtx.lock();
         center = line;
@@ -244,7 +253,8 @@ void draw_clock()
     // who the fuck designs these format libs so it's impossible to get fucking numbers without leading zeros
     int day = std::stoi(std::format(loc, "{:L%d}", now));
     int mon = std::stoi(std::format(loc, "{:L%m}", now));
-    std::cout << "3,<span color='#ffffffff'>" + std::format(loc, "#{:L%OV %a} {}.{}. {:L%H:%M:%OS}", now, day, mon, now) + "</span>" << std::endl;
+    int week = std::stoi(std::format(loc, "{:L%V}", now));
+    std::cout << "3,<span color='#ffffffff'>" + std::format(loc, "#{1} {0:L%a} {2}.{3}. {0:L%H:%M:%OS}", now, week, day, mon) + "</span>" << std::endl;
     mtx.unlock();
 }
 
@@ -288,7 +298,7 @@ void ipc_update()
     {
         auto id = ws["id"].get<int>();
         auto name = ws["name"].get<std::string>();
-        SWorkspace nws{id, name, workspace["id"] == id};
+        SWorkspace nws{id, name, window["workspace"]["id"] == id || workspace["id"] == id};
         wss.emplace_back(std::move(nws));
     }
     for (auto& win : windows)
@@ -407,50 +417,6 @@ bool ipc_handle(std::string event)
     }
 
     return false;
-}
-
-bool has_data(int sockfd)
-{
-    // 1. Initialize an fd_set for reading
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(sockfd, &readfds);
-
-    // 2. Set a timeout value of zero for immediate polling (non-blocking)
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 0;
-
-    // 3. Call select() to monitor the socket for readiness to read
-    // The first argument (nfds) should be the highest file descriptor + 1.
-    int ready_count = select(sockfd + 1, &readfds, NULL, NULL, &tv);
-
-    // 4. Check the result of select()
-    if (ready_count == -1)
-    {
-        // Handle error (e.g., check errno)
-        perror("select error");
-        return false;
-    }
-    else if (ready_count == 0)
-    {
-        // No data available within the timeout (which is 0)
-        return false;
-    }
-    else
-    {
-        // ready_count > 0: Check if our specific socket is in the set
-        if (FD_ISSET(sockfd, &readfds))
-        {
-            // Optional: You can use ioctl(FIONREAD) to get the exact number of bytes waiting
-            // int bytes_available;
-            // ioctl(sockfd, FIONREAD, &bytes_available);
-            // std::cout << bytes_available << " bytes available." << std::endl;
-
-            return true; // Data is available
-        }
-        return false;
-    }
 }
 
 void ipc_listen()
