@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -27,6 +28,7 @@ static std::string wsdata;
 static std::string windata;
 static std::string wsactive;
 static std::string winactive;
+static std::string mondata;
 static std::string backup;
 
 static const auto loc = std::locale("fi_FI.UTF-8");
@@ -273,11 +275,13 @@ void ipc_update()
     windata = ipc_send("j/clients");
     wsactive = ipc_send("j/activeworkspace");
     winactive = ipc_send("j/activewindow");
+    mondata = ipc_send("j/monitors");
 
     json window;
     json windows;
     json workspace;
     json workspaces;
+    json monitors;
 
     try
     {
@@ -285,6 +289,7 @@ void ipc_update()
         windows = json::parse(windata);
         workspace = json::parse(wsactive);
         workspaces = json::parse(wsdata);
+        monitors = json::parse(mondata);
     }
     catch (const json::exception& e)
     {
@@ -314,6 +319,14 @@ void ipc_update()
                 continue;
             ws.windows.emplace_back(std::move(nwin));
         }
+    }
+    for (auto& mon : monitors)
+    {
+        auto special = mon["specialWorkspace"]["id"].get<int>();
+        if (!special)
+            continue;
+        if (auto it = std::ranges::find(wss, special, &SWorkspace::id); it != wss.end())
+            it->active = true;
     }
 }
 
@@ -375,7 +388,7 @@ bool ipc_handle(std::string event)
         }
         return true;
     }
-    else if (event.starts_with("workspacev2>>"))
+    else if (event.starts_with("workspacev2>>") || event.starts_with("activespecialv2>>"))
     {
         try
         {
