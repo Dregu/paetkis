@@ -428,6 +428,23 @@ bool ipc_handle(std::string event)
         {
         }
     }
+    else if (event.starts_with("changeworkspaceid>>"))
+    {
+        try
+        {
+            auto id = std::stoi(data.substr(0, data.find_first_of(',')));
+            auto to = std::stoi(data.substr(data.find_first_of(',') + 1));
+            auto it = std::find_if(wss.begin(), wss.end(), [&id](SWorkspace& ws) { return ws.id == id; });
+            if (it != wss.end())
+            {
+                it->id = to;
+                return true;
+            }
+        }
+        catch (std::exception e)
+        {
+        }
+    }
 
     return false;
 }
