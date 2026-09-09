@@ -143,7 +143,6 @@ bool has_data(int sockfd)
 struct SWindow
 {
     std::string address;
-    int workspace_id;
     bool active;
     int x;
     int y;
@@ -151,7 +150,7 @@ struct SWindow
 
 struct SWorkspace
 {
-    int id;
+    std::string address;
     std::string name;
     bool active;
     std::list<SWindow> windows;
@@ -208,10 +207,15 @@ std::string workspaces()
             else
                 out += "<span color='#ffffff55' letter_spacing='3072'>";
         }
-        if (ws.id > 0)
-            out += std::format("<span letter_spacing='0'>{}</span>", ws.id);
-        else
+        try
+        {
+            auto id = std::stoi(ws.address);
+            out += std::format("<span letter_spacing='0'>{}</span>", id);
+        }
+        catch (...)
+        {
             out += std::format("{:c}", ws.name.starts_with("special:") ? std::toupper(ws.name[8]) : std::toupper(ws.name[0]));
+        }
         out += "</span><span baseline_shift='1.5pt' letter_spacing='1024'>";
         for (auto& win : ws.windows)
         {
@@ -301,31 +305,31 @@ void ipc_update()
 
     for (auto& ws : workspaces)
     {
-        auto id = ws["id"].get<int>();
+        auto addr = ws["address"].get<std::string>();
         auto name = ws["name"].get<std::string>();
-        SWorkspace nws{id, name, window["workspace"]["id"] == id || workspace["id"] == id};
+        SWorkspace nws{addr, name, window["workspace"]["address"] == addr || workspace["address"] == addr};
         wss.emplace_back(std::move(nws));
     }
     for (auto& win : windows)
     {
         auto addr = win["address"].get<std::string>();
-        auto id = win["workspace"]["id"].get<int>();
+        auto ws_addr = win["workspace"]["address"].get<std::string>();
         auto x = win["at"][0].get<int>();
         auto y = win["at"][1].get<int>();
-        SWindow nwin{addr, id, window["address"] == addr, x, y};
+        SWindow nwin{addr, window["address"] == addr, x, y};
         for (auto& ws : wss)
         {
-            if (ws.id != id)
+            if (ws.address != ws_addr)
                 continue;
             ws.windows.emplace_back(std::move(nwin));
         }
     }
     for (auto& mon : monitors)
     {
-        auto special = mon["specialWorkspace"]["id"].get<int>();
-        if (!special)
+        auto special = mon["specialWorkspace"]["address"].get<std::string>();
+        if (special.empty())
             continue;
-        if (auto it = std::ranges::find(wss, special, &SWorkspace::id); it != wss.end())
+        if (auto it = std::ranges::find(wss, special, &SWorkspace::address); it != wss.end())
             it->active = true;
     }
 }
@@ -333,7 +337,7 @@ void ipc_update()
 bool ipc_handle(std::string event)
 {
     auto data = event.substr(event.find_last_of('>') + 1);
-    if (event.starts_with("openwindow>>"))
+    if (event.starts_with("openwindow>>") || event.starts_with("movewindow>>"))
     {
         ipc_update();
         return true;
@@ -374,10 +378,10 @@ bool ipc_handle(std::string event)
     {
         try
         {
-            auto id = std::stoi(data.substr(data.find_first_of(',') + 1));
+            auto addr = data.substr(data.find_first_of(',') + 1);
             for (auto& ws : wss)
             {
-                if (ws.id == id)
+                if (ws.address == addr)
                     ws.active = true;
                 else
                     ws.active = false;
@@ -392,11 +396,11 @@ bool ipc_handle(std::string event)
     {
         try
         {
-            auto id = std::stoi(data.substr(0, data.find_first_of(',')));
+            auto addr = data.substr(0, data.find_first_of(','));
             bool found = false;
             for (auto& ws : wss)
             {
-                if (ws.id == id)
+                if (ws.address == addr)
                 {
                     ws.active = true;
                     found = true;
@@ -416,8 +420,8 @@ bool ipc_handle(std::string event)
     {
         try
         {
-            auto id = std::stoi(data.substr(0, data.find_first_of(',')));
-            auto it = std::find_if(wss.begin(), wss.end(), [&id](SWorkspace& ws) { return ws.id == id; });
+            auto addr = data.substr(0, data.find_first_of(','));
+            auto it = std::find_if(wss.begin(), wss.end(), [&addr](SWorkspace& ws) { return ws.address == addr; });
             if (it != wss.end())
             {
                 wss.erase(it);
@@ -432,12 +436,12 @@ bool ipc_handle(std::string event)
     {
         try
         {
-            auto id = std::stoi(data.substr(0, data.find_first_of(',')));
-            auto to = std::stoi(data.substr(data.find_first_of(',') + 1));
-            auto it = std::find_if(wss.begin(), wss.end(), [&id](SWorkspace& ws) { return ws.id == id; });
+            auto addr = data.substr(0, data.find_first_of(','));
+            auto to = data.substr(data.find_first_of(',') + 1);
+            auto it = std::find_if(wss.begin(), wss.end(), [&addr](SWorkspace& ws) { return ws.address == addr; });
             if (it != wss.end())
             {
-                it->id = to;
+                it->address = to;
                 return true;
             }
         }
