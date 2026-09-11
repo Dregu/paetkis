@@ -397,6 +397,8 @@ bool ipc_handle(std::string event)
         try
         {
             auto addr = data.substr(0, data.find_first_of(','));
+            if (addr.starts_with("name:"))
+                addr = addr.substr(5);
             bool found = false;
             for (auto& ws : wss)
             {
@@ -421,6 +423,8 @@ bool ipc_handle(std::string event)
         try
         {
             auto addr = data.substr(0, data.find_first_of(','));
+            if (addr.starts_with("name:"))
+                addr = addr.substr(5);
             auto it = std::find_if(wss.begin(), wss.end(), [&addr](SWorkspace& ws) { return ws.address == addr; });
             if (it != wss.end())
             {
