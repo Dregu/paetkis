@@ -151,9 +151,31 @@ struct SWindow
 struct SWorkspace
 {
     std::string address;
+    std::string type;
     std::string name;
     bool active;
     std::list<SWindow> windows;
+
+    std::string id()
+    {
+        if (name.empty())
+            return "?";
+        size_t len = 1;
+        unsigned char c = static_cast<unsigned char>(name[0]);
+        if (c < 0x80)
+            len = 1;
+        else if ((c & 0xE0) == 0xC0)
+            len = 2;
+        else if ((c & 0xF0) == 0xE0)
+            len = 3;
+        else if ((c & 0xF8) == 0xF0)
+            len = 4;
+        else
+            len = 1;
+        auto n = name.substr(0, len);
+        std::ranges::transform(n, n.begin(), [](unsigned char c) { return std::toupper(c); });
+        return n;
+    }
 };
 std::list<SWorkspace> wss;
 
@@ -163,9 +185,9 @@ std::string workspaces()
     wss.sort(
         [](SWorkspace& a, SWorkspace& b)
         {
-            if (!a.name.starts_with("special:") && b.name.starts_with("special:"))
+            if (a.type != "special" && b.type == "special")
                 return true;
-            if (!b.name.starts_with("special:") && a.name.starts_with("special:"))
+            if (b.type != "special" && a.type == "special")
                 return false;
             int aid = __INT_MAX__;
             int bid = __INT_MAX__;
@@ -185,7 +207,7 @@ std::string workspaces()
             };
             if (aid != bid)
                 return aid < bid;
-            return (a.name.starts_with("special:") ? a.name[8] : a.name[0]) < (b.name.starts_with("special:") ? b.name[8] : b.name[0]);
+            return a.name[0] < b.name[0];
         });
     for (auto& ws : wss)
     {
@@ -193,7 +215,7 @@ std::string workspaces()
     }
     for (auto& ws : wss)
     {
-        if (ws.name.starts_with("special:"))
+        if (ws.type == "special")
         {
             if (ws.active)
                 out += "<span color='#ff69b4ff' letter_spacing='3072'>";
@@ -214,7 +236,7 @@ std::string workspaces()
         }
         catch (...)
         {
-            out += std::format("{:c}", ws.name.starts_with("special:") ? std::toupper(ws.name[8]) : std::toupper(ws.name[0]));
+            out += ws.id();
         }
         out += "</span><span baseline_shift='1.5pt' letter_spacing='1024'>";
         for (auto& win : ws.windows)
@@ -306,8 +328,11 @@ void ipc_update()
     for (auto& ws : workspaces)
     {
         auto addr = ws["address"].get<std::string>();
+        auto type = ws["type"].get<std::string>();
         auto name = ws["name"].get<std::string>();
-        SWorkspace nws{addr, name, window["workspace"]["address"] == addr || workspace["address"] == addr};
+        if (name.starts_with("special:") || name.starts_with("name:"))
+            name = name.substr(name.find_first_of(":") + 1);
+        SWorkspace nws{addr, type, name, window["workspace"]["address"] == addr || workspace["address"] == addr};
         wss.emplace_back(std::move(nws));
     }
     for (auto& win : windows)
