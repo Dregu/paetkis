@@ -1,11 +1,14 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <ext/stdio_filebuf.h>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <list>
 #include <mutex>
@@ -18,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <thread>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -38,6 +42,126 @@ std::string center = "";
 std::mutex mtx;
 std::atomic_bool die{false};
 
+namespace fs = std::filesystem;
+
+struct Battery
+{
+    int percentage = -1;
+    std::string state = "Unknown";
+    double hours = -1.0;
+};
+
+Battery get_battery()
+{
+    Battery total;
+
+    double total_now = 0.0;
+    double total_full = 0.0;
+    double total_rate = 0.0;
+
+    bool is_charging = false;
+    bool is_discharging = false;
+    bool is_full = true;
+    bool found_battery = false;
+
+    std::string path = "/sys/class/power_supply/";
+    if (!fs::exists(path))
+        return total;
+
+    for (const auto& entry : fs::directory_iterator(path))
+    {
+        std::string name = entry.path().filename().string();
+
+        if (name.rfind("BAT", 0) == 0)
+        {
+            found_battery = true;
+            std::string base = entry.path().string() + "/";
+
+            std::ifstream f_now(base + "energy_now");
+            std::ifstream f_rate(base + "power_now");
+            std::ifstream f_full(base + "energy_full");
+
+            if (!f_now.is_open())
+            {
+                f_now.open(base + "charge_now");
+                f_rate.open(base + "current_now");
+                f_full.open(base + "charge_full");
+            }
+
+            double b_now = 0, b_rate = 0, b_full = 0;
+            if (f_now >> b_now && f_rate >> b_rate && f_full >> b_full)
+            {
+                total_now += b_now;
+                total_full += b_full;
+                total_rate += b_rate;
+            }
+
+            std::ifstream f_status(base + "status");
+            std::string b_state;
+            if (std::getline(f_status, b_state))
+            {
+                if (b_state == "Charging")
+                    is_charging = true;
+                if (b_state == "Discharging")
+                    is_discharging = true;
+                if (b_state != "Full")
+                    is_full = false;
+            }
+        }
+    }
+
+    if (!found_battery || total_full == 0.0)
+        return total;
+
+    total.percentage = static_cast<int>(std::round((total_now / total_full) * 100.0));
+
+    if (is_charging)
+        total.state = "Charging";
+    else if (is_discharging)
+        total.state = "Discharging";
+    else if (is_full)
+        total.state = "Full";
+    else
+        total.state = "Not Charging";
+
+    if (total_rate > 0.0)
+    {
+        if (total.state == "Discharging")
+        {
+            total.hours = total_now / total_rate;
+        }
+        else if (total.state == "Charging")
+        {
+            total.hours = (total_full - total_now) / total_rate;
+        }
+    }
+
+    return total;
+}
+
+std::string format_battery(Battery& bat)
+{
+    if (bat.percentage == -1)
+        return {};
+    std::string time;
+    std::string icon;
+    if (bat.hours >= 0.0)
+    {
+        int hours = static_cast<int>(bat.hours);
+        int minutes = static_cast<int>(std::round((bat.hours - hours) * 60));
+        if (minutes == 60)
+        {
+            hours = 1;
+            minutes = 0;
+        }
+        time = std::format("{}:{:02}", hours, minutes);
+    }
+    size_t index = static_cast<size_t>(std::clamp(bat.percentage / 10, 0, 10));
+    static const std::vector<std::string> ICONS = {"󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"};
+    icon = std::format("{}{}", ICONS[index], bat.state == "Charging" ? "" : "");
+    return std::format("{} {}% {}   ", icon, bat.percentage, time);
+}
+
 bool socket_write(int socket, std::string msg)
 {
     size_t n = 0;
@@ -48,7 +172,6 @@ bool socket_write(int socket, std::string msg)
             return false;
         n += sent;
     }
-    // std::cerr << "sent " << msg << std::endl;
     return true;
 }
 
@@ -75,7 +198,6 @@ std::string socket_recv(int socket)
         }
     }
     auto reply = std::string{data.begin(), data.end()};
-    // std::cerr << "recv " << reply << std::endl;
     return reply;
 }
 
@@ -102,7 +224,6 @@ std::string socket_read(int socket)
         }
     }
     auto reply = std::string{data.begin(), data.end()};
-    // std::cerr << "recv " << reply << std::endl;
     return reply;
 }
 
@@ -282,7 +403,10 @@ void draw_clock()
     int day = std::stoi(std::format(loc, "{:L%d}", now));
     int mon = std::stoi(std::format(loc, "{:L%m}", now));
     int week = std::stoi(std::format(loc, "{:L%V}", now));
-    std::cout << "3,<span color='#ffffffff'>" + std::format(loc, "#{1} {0:L%a} {2}.{3}. {0:L%H:%M:%OS}", now, week, day, mon) + "</span>" << std::endl;
+
+    auto bat = get_battery();
+    std::cout << "3,<span color='#ffffffff'>" + format_battery(bat) + std::format(loc, "#{1} {0:L%a} {2}.{3}. {0:L%H:%M:%OS}", now, week, day, mon) + "</span>"
+              << std::endl;
     mtx.unlock();
 }
 
